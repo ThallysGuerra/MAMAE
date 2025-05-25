@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agenda Financeira Inteligente</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3f3f3; padding: 20px; max-width: 900px; margin: auto; }
+    h1, h2 { text-align: center; color: #4a148c; }
+    input, select, button, textarea { width: 100%; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; }
+    button { background: #7b1fa2; color: white; border: none; cursor: pointer; }
+    button:hover { background: #4a148c; }
+    .secao { margin-top: 30px; background: white; padding: 15px; border-radius: 10px; box-shadow: 0 0 5px #aaa; }
+    #listaContas div { cursor: pointer; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; }
+    #listaContas div.ativo { background-color: #4a148c; color: white; }
+    .tipoTitulo { margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 5px; }
+    .gasto { padding: 5px; margin: 5px 0; border-bottom: 1px solid #eee; }
+    .fixo { color: green; }
+    .extra { color: red; }
+    .recebido { color: blue; }
+    .resumo { margin-top: 20px; font-weight: bold; }
+    .btn-pequeno { width: auto; margin: 0 5px; padding: 5px 10px; font-size: 0.9em; }
+    textarea { height: 80px; resize: vertical; }
+  </style>
+</head>
+<body>
+  <h1>Agenda Financeira Inteligente</h1>
+
+  <div class="secao">
+    <h2>➕ Nova Conta/Pessoa</h2>
+    <input type="text" id="nomeConta" placeholder="Ex: TIZIH, LIIH..." />
+    <button onclick="adicionarConta()">Adicionar Conta</button>
+  </div>
+
+  <div class="secao">
+    <h2>📋 Contas</h2>
+    <div id="listaContas"></div>
+  </div>
+
+  <div class="secao" id="inputSection" style="display:none;">
+    <h2>➕ Adicionar Movimento - <span id="contaAtual"></span></h2>
+    <input type="date" id="data" />
+    <input type="text" id="descricao" placeholder="Descrição" />
+    <input type="number" id="valor" placeholder="Valor (R$)" step="0.01" />
+    <select id="tipo">
+      <option value="fixo">Gasto Fixo</option>
+      <option value="extra">Gasto Extra</option>
+      <option value="recebido">Recebido</option>
+    </select>
+    <button onclick="adicionarMovimento()">Salvar Movimento</button>
+  </div>
+
+  <div class="secao" id="comandoSection" style="display:none;">
+    <h2>🤖 Comando de Texto (ex: "Recebi um pagamento de uma mãe de 5000 reais")</h2>
+    <textarea id="comandoTexto" placeholder="Digite aqui seu comando..."></textarea>
+    <button onclick="processarComando()">Adicionar via comando</button>
+  </div>
+
+  <div class="secao" id="filtros" style="display:none;">
+    <h2>📅 Filtros e Exportação</h2>
+    <select id="mesFiltro" onchange="renderizarMovimentos()"></select>
+    <button onclick="exportar()">📤 Exportar CSV</button>
+    <button onclick="mostrarLucro()">📊 Mostrar Lucro / Perda</button>
+  </div>
+
+  <div class="secao" id="movimentosList" style="display:none;">
+    <h2>📜 Movimentos</h2>
+    <div id="movimentos"></div>
+  </div>
+
+  <div class="secao" id="resultado" style="display:none;">
+    <h2>💰 Resumo</h2>
+    <div id="resumo"></div>
+  </div>
+
+  <div class="secao" id="metaSection" style="display:none;">
+    <h2>🎯 Meta Mensal</h2>
+    <input type="number" id="metaMensal" placeholder="Digite valor da meta mensal (R$)" step="0.01" />
+    <button onclick="definirMeta()">Definir Meta</button>
+    <button onclick="limparMeta()">Limpar Meta</button>
+    <div id="exibeMeta" style="margin-top:10px; font-weight: bold; color: #4a148c;"></div>
+  </div>
+
+  <div class="secao" id="limparDadosSection" style="display:none;">
+    <h2>🗑️ Limpar Dados</h2>
+    <button onclick="limparMovimentos()">Limpar todos os movimentos desta conta</button>
+  </div>
+
+<script>
+  // Variáveis globais
+  let contas = JSON.parse(localStorage.getItem('agenda_contas')) || [];
+  let contaSelecionada = null;
+  let metaMensal = null;
+
+  // Salvar no localStorage
+  function salvar() {
+    localStorage.setItem('agenda_contas', JSON.stringify(contas));
+  }
+
+  // Adicionar nova conta
+  function adicionarConta() {
+    const nome = document.getElementById('nomeConta').value.trim();
+    if (!nome) {
+      alert("Digite um nome para a conta!");
+      return;
+    }
+    if (contas.some(c => c.nome.toLowerCase() === nome.toLowerCase())) {
+      alert("Essa conta já existe!");
+      return;
+    }
+    contas.push({ nome, movimentos: [] });
+    salvar();
+    listarContas();
+    document.getElementById('nomeConta').value = '';
+  }
+
+  // Listar contas na tela
+  function listarContas() {
+    const lista = document.getElementById('listaContas');
+    lista.innerHTML = '';
+    contas.forEach((c, i) => {
+      const div = document.createElement('div');
+      div.textContent = c.nome;
+      div.className = (contaSelecionada === i) ? 'ativo' : '';
+      div.onclick = () => selecionarConta(i);
+      lista.appendChild(div);
+    });
+  }
+
+  // Selecionar conta para trabalhar
+  function selecionarConta(index) {
+    contaSelecionada = index;
+    document.getElementById('contaAtual').textContent = contas[index].nome;
+    document.getElementById('inputSection').style.display = 'block';
+    document.getElementById('filtros').style.display = 'block';
+    document.getElementById('movimentosList').style.display = 'block';
+    document.getElementById('resultado').style.display = 'block';
+    document.getElementById('comandoSection').style.display = 'block';
+    document.getElementById('metaSection').style.display = 'block';
+    document.getElementById('limparDadosSection').style.display = 'block';
+
+    // Data atual automática no input de data
+    const hoje = new Date().toISOString().slice(0,10);
+    document.getElementById('data').value = hoje;
+
+    carregarMeta();
+    popularMeses();
+    renderizarMovimentos();
+    listarContas();
+  }
+
+  // Adicionar movimento manual
+  function adicionarMovimento() {
+    if (contaSelecionada === null) {
+      alert("Selecione uma conta antes!");
+      return;
+    }
+
+    const data = document.getElementById('data').value;
+    const descricao = document.getElementById('descricao').value.trim();
+    const valor = parseFloat(document.getElementById('valor').value);
+    const tipo = document.getElementById('tipo').value;
+
+    if (!data || !descricao || isNaN(valor)) {
+      alert("Preencha todos os campos corretamente!");
+      return;
+    }
+
+    contas[contaSelecionada].movimentos.push({ data, descricao, valor, tipo });
+    salvar();
+
+    // Limpar campos
+    document.getElementById('descricao').value = '';
+    document.getElementById('valor').value = '';
+
+    renderizarMovimentos();
+  }
+
+  // Popular filtro de meses para escolher
+  function popularMeses() {
+    const select = document.getElementById('mesFiltro');
+    const conta = contas[contaSelecionada];
+    const mesesSet = new Set(conta.movimentos.map(m => m.data.slice(0,7)));
+    const meses = Array.from(mesesSet).sort();
+    select.innerHTML = '';
+    meses.forEach(mes => {
+      const option = document.createElement('option');
+      option.value = mes;
+      option.textContent = mes;
+      select.appendChild(option);
+    });
+    if (meses.length) {
+      select.value = meses[meses.length -1]; // último mês disponível
+    }
+  }
+
+  // Renderizar movimentos filtrados por mês
+  function renderizarMovimentos() {
+    if (contaSelecionada === null) return;
+    const mesSelecionado = document.getElementById('mesFiltro').value;
+    const div = document.getElementById('movimentos');
+    div.innerHTML = '';
+
+    const conta = contas[contaSelecionada];
+
+    const fixos = [];
+    const extras = [];
+    const recebidos = [];
+
+    let totalFixos = 0, totalExtras = 0, totalRecebido = 0;
+
+    conta.movimentos.forEach((m, i) => {
+      if (mesSelecionado && !m.data.startsWith(mesSelecionado)) return;
+      if(m.tipo === 'fixo') {
+        fixos.push({...m, index:i});
+        totalFixos += m.valor;
+      } else if(m.tipo === 'extra') {
+        extras.push({...m, index:i});
+        totalExtras += m.valor;
+      } else if(m.tipo === 'recebido') {
+        recebidos.push({...m, index:i});
+        totalRecebido += m.valor;
+      }
+    });
+
+    function criarDivMovimento(mov) {
+      const divMov = document.createElement('div');
+      divMov.className = `gasto ${mov.tipo}`;
+      divMov.innerHTML = `
+        <b>${mov.data}</b> - ${mov.descricao} - R$ ${mov.valor.toFixed(2)} 
+        <button class="btn-pequeno" onclick="editarMovimento(${mov.index})">✏️</button>
+        <button class="btn-pequeno" onclick="removerMovimento(${mov.index})">❌</button>
+      `;
+      return divMov;
+    }
+
+    if(fixos.length) {
+      const h3f = document.createElement('div');
+      h3f.className = 'tipoTitulo fixo';
+      h3f.textContent = 'Gastos Fixos';
+      div.appendChild(h3f);
+      fixos.forEach(f => div.appendChild(criarDivMovimento(f)));
+    }
+
+    if(extras.length) {
+      const h3e = document.createElement('div');
+      h3e.className = 'tipoTitulo extra';
+      h3e.textContent = 'Gastos Extras';
+      div.appendChild(h3e);
+      extras.forEach(e => div.appendChild(criarDivMovimento(e)));
+    }
+
+    if(recebidos.length) {
+      const h3r = document.createElement('div');
+      h3r.className = 'tipoTitulo recebido';
+      h3r.textContent = 'Recebidos';
+      div.appendChild(h3r);
+      recebidos.forEach(r => div.appendChild(criarDivMovimento(r)));
+    }
+
+    // Mostrar resumo:
+    const resumo = document.getElementById('resumo');
+    const saldo = totalRecebido - (totalFixos + totalExtras);
+    resumo.innerHTML = `
+      <p>Total Recebido: R$ ${totalRecebido.toFixed(2)}</p>
+      <p>Total Gastos Fixos: R$ ${totalFixos.toFixed(2)}</p>
+      <p>Total Gastos Extras: R$ ${totalExtras.toFixed(2)}</p>
+      <p><strong>Saldo: R$ ${saldo.toFixed(2)}</strong></p>
+    `;
+
+    // Mostrar meta mensal
+    exibirMeta(mesSelecionado);
+  }
+
+  // Editar movimento
+  function editarMovimento(index) {
+    if (contaSelecionada === null) return;
+    const conta = contas[contaSelecionada];
+    const mov = conta.movimentos[index];
+    if(!mov) return alert("Movimento não encontrado.");
+
+    const data = prompt("Data (YYYY-MM-DD):", mov.data);
+    if(!data) return;
+
+    const descricao = prompt("Descrição:", mov.descricao);
+    if(!descricao) return;
+
+    const valorStr = prompt("Valor (R$):", mov.valor);
+    const valor = parseFloat(valorStr);
+    if(isNaN(valor)) return alert("Valor inválido.");
+
+    const tipo = prompt("Tipo (fixo, extra, recebido):", mov.tipo);
+    if(!['fixo','extra','recebido'].includes(tipo)) return alert("Tipo inválido.");
+
+    conta.movimentos[index] = { data, descricao, valor, tipo };
+    salvar();
+    renderizarMovimentos();
+  }
+
+  // Remover movimento
+  function removerMovimento(index) {
+    if (contaSelecionada === null) return;
+    if(!confirm("Tem certeza que deseja excluir este movimento?")) return;
+    contas[contaSelecionada].movimentos.splice(index, 1);
+    salvar();
+    renderizarMovimentos();
+  }
+
+  // Definir meta mensal
+  function definirMeta() {
+    if(contaSelecionada === null) return alert("Selecione uma conta.");
+    const val = parseFloat(document.getElementById('metaMensal').value);
+    if(isNaN(val) || val < 0) return alert("Digite um valor válido para a meta.");
+
+    if(!contas[contaSelecionada].meta) contas[contaSelecionada].meta = {};
+    // Meta por mês atual no filtro
+    const mes = document.getElementById('mesFiltro').value || new Date().toISOString().slice(0,7);
+    contas[contaSelecionada].meta[mes] = val;
+    salvar();
+    exibirMeta(mes);
+  }
+
+  // Exibir meta mensal
+  function exibirMeta(mes) {
+    if(contaSelecionada === null) return;
+    const metaDiv = document.getElementById('exibeMeta');
+    const conta = contas[contaSelecionada];
+    if(!conta.meta) {
+      metaDiv.textContent = 'Meta mensal não definida.';
+      return;
+    }
+    const valorMeta = conta.meta[mes];
+    if(valorMeta === undefined) {
+      metaDiv.textContent = 'Meta mensal não definida para este mês.';
+    } else {
+      metaDiv.textContent = `Meta mensal para ${mes}: R$ ${valorMeta.toFixed(2)}`;
+    }
+  }
+
+  // Limpar meta
+  function limparMeta() {
+    if(contaSelecionada === null) return alert("Selecione uma conta.");
+    const mes = document.getElementById('mesFiltro').value || new Date().toISOString().slice(0,7);
+    if(!contas[contaSelecionada].meta) return alert("Nenhuma meta definida para limpar.");
+    delete contas[contaSelecionada].meta[mes];
+    salvar();
+    exibirMeta(mes);
+  }
+
+  // Limpar todos os movimentos da conta
+  function limparMovimentos() {
+    if(contaSelecionada === null) return alert("Selecione uma conta.");
+    if(confirm("Tem certeza que quer limpar todos os movimentos desta conta? Isso não pode ser desfeito.")) {
+      contas[contaSelecionada].movimentos = [];
+      contas[contaSelecionada].meta = {};
+      salvar();
+      renderizarMovimentos();
+      exibirMeta('');
+      popularMeses();
+    }
+  }
+
+  // Exportar CSV
+  function exportar() {
+    if(contaSelecionada === null) return alert("Selecione uma conta.");
+    const conta = contas[contaSelecionada];
+    if(conta.movimentos.length === 0) return alert("Não há movimentos para exportar.");
+
+    let csv = "data,descricao,valor,tipo\n";
+    conta.movimentos.forEach(m => {
+      csv += `"${m.data}","${m.descricao}",${m.valor.toFixed(2)},"${m.tipo}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `movimentos_${conta.nome}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Mostrar lucro/perda geral (sem filtro)
+  function mostrarLucro() {
+    if(contaSelecionada === null) return alert("Selecione uma conta.");
+    const conta = contas[contaSelecionada];
+    let totalFixos = 0, totalExtras = 0, totalRecebido = 0;
+    conta.movimentos.forEach(m => {
+      if(m.tipo === 'fixo') totalFixos += m.valor;
+      else if(m.tipo === 'extra') totalExtras += m.valor;
+      else if(m.tipo === 'recebido') totalRecebido += m.valor;
+    });
+    const saldo = totalRecebido - (totalFixos + totalExtras);
+    alert(`Recebido: R$ ${totalRecebido.toFixed(2)}\nGastos Fixos: R$ ${totalFixos.toFixed(2)}\nGastos Extras: R$ ${totalExtras.toFixed(2)}\nSaldo: R$ ${saldo.toFixed(2)}`);
+  }
+
+  // Função para processar comando de texto inteligente
+  function processarComando() {
+    if(contaSelecionada === null) return alert("Selecione uma conta.");
+
+    const texto = document.getElementById('comandoTexto').value.toLowerCase().trim();
+    if(!texto) return alert("Digite um comando válido.");
+
+    // Detectar valor em reais no texto - aceita formatos com "reais", "r$", "rs", e números com ou sem vírgula/ponto
+    // Exemplo: "recebi um pagamento de uma mãe de 5.000,50 reais"
+    const regexValor = /(\d{1,3}(\.\d{3})*|\d+)(,\d{1,2})?/;
+    const valorEncontrado = texto.match(regexValor);
+    if(!valorEncontrado) {
+      alert("Não consegui detectar valor no texto.");
+      return;
+    }
+
+    // Extrair valor numérico e converter para float
+    let valorStr = valorEncontrado[0].replace(/\./g, '').replace(',', '.');
+    const valor = parseFloat(valorStr);
+    if(isNaN(valor)) {
+      alert("Valor detectado é inválido.");
+      return;
+    }
+
+    // Detectar tipo: se contém "pago", "gaste", "gasto" → gasto extra ou fixo (priorizar extra), se contém "recebi", "recebido", "ganhei" → recebido
+    let tipo = 'extra'; // default para gasto extra
+
+    if(/recebi|recebido|ganhei|paguei|pago|depositei|depositado/.test(texto)) {
+      // Se fala de pagamento recebido ou gasto, vamos tentar identificar
+      if(/recebi|recebido|ganhei/.test(texto)) tipo = 'recebido';
+      else if(/paguei|pago/.test(texto)) tipo = 'extra'; // gasto extra
+    }
+
+    // Buscar descrição no texto — remover valor e palavras irrelevantes para pegar o que sobrou
+    let descricao = texto;
+    // Tirar valor detectado
+    descricao = descricao.replace(valorEncontrado[0], '');
+    // Tirar palavras chave "recebi", "paguei", "pagamento", "de", "uma", "um", "de um(a)", etc
+    descricao = descricao.replace(/(recebi|recebido|ganhei|paguei|pago|pagamento|de|uma|um|da|do|das|dos)/g, '');
+    descricao = descricao.replace(/\s+/g, ' ').trim();
+    if(descricao.length < 3) descricao = 'Movimento via comando';
+
+    // Data atual
+    const hoje = new Date().toISOString().slice(0,10);
+
+    // Adicionar movimento
+    contas[contaSelecionada].movimentos.push({
+      data: hoje,
+      descricao,
+      valor,
+      tipo
+    });
+    salvar();
+    renderizarMovimentos();
+
+    alert(`Movimento adicionado!\nTipo: ${tipo}\nDescrição: ${descricao}\nValor: R$ ${valor.toFixed(2)}`);
+    document.getElementById('comandoTexto').value = '';
+  }
+
+  // Inicialização
+  listarContas();
+  if(contas.length) {
+    selecionarConta(0);
+  }
+</script>
+
+</body>
+</html>
